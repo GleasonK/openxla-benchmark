@@ -1,0 +1,3 @@
+https://storage.googleapis.com/pytorch-xla-releases/wheels/cuda/11.8/torch-nightly-cp38-cp38-linux_x86_64.whl
+https://storage.googleapis.com/pytorch-xla-releases/wheels/cuda/11.8/torch_xla-nightly-cp38-cp38-linux_x86_64.whl
+transformers

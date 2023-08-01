@@ -8,6 +8,7 @@
 
 import argparse
 import numpy as np
+import os
 import pathlib
 import statistics
 import sys
@@ -27,6 +28,8 @@ from openxla.benchmark.comparative_suite.pt import benchmark_definitions
 import openxla.benchmark.models.utils as model_utils
 import benchmark_lib
 
+COMPILER_INDUCTOR = "inductor"
+COMPILER_OPENXLA = "openxla"
 
 def _run_framework_benchmark(
     model: def_types.Model,
@@ -38,10 +41,17 @@ def _run_framework_benchmark(
     verbose: bool,
 ) -> Tuple[Dict[str, Any], tuple]:
   try:
-
     data_type = model.model_parameters["data_type"]
-
-    if backend == "gpu":
+    if backend == "cpu":
+      if data_type != "fp32":
+        raise ValueError(f"Datatype other than FP32 is not supported on CPU.")
+      torch.set_default_tensor_type(torch.FloatTensor)
+    elif backend == "gpu" and compiler == "openxla":
+      if data_type == "fp16":
+        torch.set_default_tensor_type(torch.HalfTensor)
+      elif data_type == "fp32":
+        torch.set_default_tensor_type(torch.FloatTensor)
+    elif backend == "gpu" and compiler == "inductor":
       if data_type == "fp16":
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
         torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
@@ -51,10 +61,6 @@ def _run_framework_benchmark(
         torch.backends.cudnn.allow_tf32 = True
       else:
         raise ValueError(f"Datatype {data_type} not supported.")
-    elif backend == "cpu":
-      if data_type != "fp32":
-        raise ValueError(f"Datatype other than FP32 is not supported on CPU.")
-      torch.set_default_tensor_type(torch.FloatTensor)
     else:
       raise ValueError(f"Backend {backend} not supported.")
 
@@ -63,25 +69,35 @@ def _run_framework_benchmark(
     inputs = [np.load(path) for path in input_npys]
     pt_inputs = [torch.from_numpy(input_data) for input_data in inputs]
 
-    if backend == "gpu":
-      model_obj.cuda()
-      pt_inputs = [input_data.cuda() for input_data in pt_inputs]
-
-    if data_type == "fp16":
-      # Autotuning not supported with FP16 datatypes.
-      compiled_model = torch.compile(model_obj, backend="inductor")
+    if data_type == "fp16" or compiler == "openxla":
+      # Autotuning not supported with FP16 datatypes or PyTorch/XLA.
+      inference_backend = "torchxla_trace_once" if compiler == "openxla" else compiler
+      compiled_model = torch.compile(model_obj, backend=inference_backend)
       autotuning_enabled = False
     else:
       compiled_model = torch.compile(model_obj,
                                      mode="max-autotune",
-                                     backend="inductor")
+                                     backend=compiler)
       autotuning_enabled = True
+
+    if backend == "gpu":
+      if compiler == "openxla":
+        import torch_xla.core.xla_model as xm
+        device = xm.xla_device()
+        compiled_model = compiled_model.to(device)
+        pt_inputs = [input_data.to(device) for input_data in pt_inputs]
+      elif compiler == "inductor":
+        model_obj.cuda()
+        pt_inputs = [input_data.cuda() for input_data in pt_inputs]
+      else:
+        raise ValueError(f"Compiler {compiler} not supported.")
+
 
     def run_one_iter():
       start = time.perf_counter()
       output_obj = compiled_model.forward(*pt_inputs)
       if backend == "gpu":
-        torch.cuda.synchronize()
+        #torch.cuda.synchronize()
         # Handle the tuple of multi-value output from forward function.
         if isinstance(output_obj, tuple):
           output_obj = tuple(output.cpu() for output in output_obj)
@@ -155,7 +171,13 @@ def _run_framework_benchmark(
 
 def _parse_arguments() -> argparse.Namespace:
   parser = argparse.ArgumentParser(
-      description="Run PyTorch benchmarks with Inductor backend.")
+      description="Run PyTorch benchmarks with specified backend.")
+  parser.add_argument("-c",
+                      "--compiler",
+                      type=str,
+                      default="inductor",
+                      choices=[COMPILER_INDUCTOR, COMPILER_OPENXLA],
+                      help="Compiler to use.")
   benchmark_lib.configure_parser(parser)
   return parser.parse_args()
 
@@ -163,7 +185,6 @@ def _parse_arguments() -> argparse.Namespace:
 def main(**kwargs):
   benchmark_lib.benchmark(benchmark_function=_run_framework_benchmark,
                           benchmark_cases=benchmark_definitions.ALL_BENCHMARKS,
-                          compiler="inductor",
                           **kwargs)
 
 
