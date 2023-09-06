@@ -33,19 +33,19 @@ def _run_one(benchmark_function: Callable,
              verify_params: Dict[str, Any], **kwargs) -> Dict[str, Any]:
   try:
     metrics, outputs = benchmark_function(verbose=verbose, **kwargs)
+
+    if expect_npys is None:
+      if verbose:
+        print("No expected output, skip verification")
+    else:
+      expects = list(np.load(path) for path in expect_npys)
+      utils.check_tensor_outputs(outputs=outputs,
+                                 expects=expects,
+                                 verbose=verbose,
+                                 **verify_params)
+    return metrics
   except Exception as e:
     return {"error": str(e)}
-
-  if expect_npys is None:
-    if verbose:
-      print("No expected output, skip verification")
-  else:
-    expects = list(np.load(path) for path in expect_npys)
-    utils.check_tensor_outputs(outputs=outputs,
-                               expects=expects,
-                               verbose=verbose,
-                               **verify_params)
-  return metrics
 
 
 def _run(
@@ -102,7 +102,12 @@ def _run(
 
       p = multiprocessing.Process(target=wrapped_benchmark_function)
       p.start()
-      p.join()
+      # Timeout after an hour.
+      p.join(3600)
+
+      if p.is_alive():
+        p.terminate()
+        shared_dict.update({"error": "timeout"})
 
       framework_metrics = dict(shared_dict)
 

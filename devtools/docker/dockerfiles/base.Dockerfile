@@ -17,7 +17,12 @@ RUN apt-get update \
     wget \
     curl \
     gnupg2 \
-    python3-numpy
+    python3-numpy \
+    cmake \
+    ninja-build \
+    clang \
+    lld \
+    numactl
 
 ######## Python ########
 WORKDIR /install-python

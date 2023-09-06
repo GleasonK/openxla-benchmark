@@ -4,9 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-# An image that includes Tensorflow 2.12.0 with GPU support.
+# An image that supports CUDA.
 
-FROM gcr.io/iree-oss/openxla-benchmark/base@sha256:692bb3ca648c474e89bad21ef89f4b33a9741e3d1cc477fa61844caddd798ba0
+FROM gcr.io/iree-oss/openxla-benchmark/base@sha256:1bf3e319465ec8fb465baae3f6ba9a5b09cb84a5349a675c671a552fc77f2251
 
 ######## NVIDIA ########
 WORKDIR /install-cuda
